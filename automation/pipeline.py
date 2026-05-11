@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 class ProcessingPipeline:
     def __init__(self, enable_cloud_sync: bool = True):
+    def __init__(self):
         self.transcriber = TranscriptionProcessor()
         self.trigger_extractor = TriggerWordExtractor()
         self.insight_generator = InsightGenerator()
