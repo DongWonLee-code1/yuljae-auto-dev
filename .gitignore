@@ -2,6 +2,11 @@
 .env
 .env.local
 
+# Google Service Account credentials (NEVER commit!)
+credentials.json
+*-service-account.json
+*.json.enc
+
 # Python
 __pycache__/
 *.py[cod]
