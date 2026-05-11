@@ -6,7 +6,7 @@ Google Drive, Google Sheets, Firebase 연동 지원.
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
@@ -14,8 +14,9 @@ from config import settings
 from storage import Database
 from transcription import TranscriptionProcessor
 from analysis import TriggerWordExtractor, InsightGenerator
-from integrations import GoogleDriveClient, GoogleSheetsClient, FirebaseClient
-from integrations.sync_service import SyncService
+
+if TYPE_CHECKING:
+    from integrations.sync_service import SyncService
 
 
 logger = logging.getLogger(__name__)
@@ -30,8 +31,11 @@ class ProcessingPipeline:
         self.sync_service = None
         if enable_cloud_sync:
             try:
+                from integrations.sync_service import SyncService
                 self.sync_service = SyncService()
                 logger.info("클라우드 동기화 서비스 활성화")
+            except ImportError:
+                logger.info("클라우드 연동 패키지 미설치 (로컬 모드)")
             except Exception as e:
                 logger.warning(f"클라우드 동기화 초기화 실패 (로컬 모드로 진행): {e}")
 
