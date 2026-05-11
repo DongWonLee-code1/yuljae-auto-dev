@@ -1,10 +1,12 @@
 """
 통화 녹음 처리 자동화 파이프라인.
 STT → 트리거 워드 추출 → 인사이트 생성 → 팔로업 자동 등록까지 전 과정을 자동화.
+Google Drive, Google Sheets, Firebase 연동 지원.
 """
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional, TYPE_CHECKING
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -14,15 +16,30 @@ from storage import Database
 from transcription import TranscriptionProcessor
 from analysis import TriggerWordExtractor, InsightGenerator
 
+if TYPE_CHECKING:
+    from integrations.sync_service import SyncService
+
 
 logger = logging.getLogger(__name__)
 
 
 class ProcessingPipeline:
+    def __init__(self, enable_cloud_sync: bool = True):
     def __init__(self):
         self.transcriber = TranscriptionProcessor()
         self.trigger_extractor = TriggerWordExtractor()
         self.insight_generator = InsightGenerator()
+
+        self.sync_service = None
+        if enable_cloud_sync:
+            try:
+                from integrations.sync_service import SyncService
+                self.sync_service = SyncService()
+                logger.info("클라우드 동기화 서비스 활성화")
+            except ImportError:
+                logger.info("클라우드 연동 패키지 미설치 (로컬 모드)")
+            except Exception as e:
+                logger.warning(f"클라우드 동기화 초기화 실패 (로컬 모드로 진행): {e}")
 
     def process_upload(
         self,
@@ -147,6 +164,27 @@ class ProcessingPipeline:
 
         Database.update_call_status(db, call_record.id, "completed")
 
+        # 8. 클라우드 동기화 (Google Sheets & Firebase)
+        cloud_sync_result = None
+        if self.sync_service:
+            cloud_data = {
+                "customer_id": str(call_record.customer_id or ""),
+                "customer_name": customer_profile.get("name", "") if customer_profile else "",
+                "phone_number": phone_number,
+                "call_duration": str(stt_result.duration_seconds),
+                "trigger_words": trigger_result.found_triggers,
+                "sentiment": trigger_result.customer_sentiment,
+                "sentiment_score": str(trigger_result.opportunity_score),
+                "interest_level": trigger_result.urgency_level,
+                "recommended_action": insight_result.action_items[0].action if insight_result.action_items else "",
+                "summary": insight_result.summary,
+                "audio_file": str(saved_path),
+                "dominant_intent": trigger_result.dominant_intent,
+                "deal_probability": insight_result.estimated_deal_probability,
+            }
+            cloud_sync_result = self.sync_service.save_analysis(cloud_data)
+            logger.info("클라우드 동기화 완료: %s", cloud_sync_result)
+
         return {
             "call_id": call_record.id,
             "transcript_id": transcript.id,
@@ -154,6 +192,7 @@ class ProcessingPipeline:
             "dominant_intent": trigger_result.dominant_intent,
             "follow_ups_created": len(follow_ups_created),
             "deal_probability": insight_result.estimated_deal_probability,
+            "cloud_sync": cloud_sync_result,
         }
 
     def process_file_path(
@@ -231,3 +270,64 @@ class ProcessingPipeline:
                 logger.error("처리 실패: %s - %s", path.name, e)
                 results.append({"file": path.name, "success": False, "error": str(e)})
         return results
+
+    def sync_and_process_from_drive(
+        self,
+        db: Session,
+        phone_number_map: Optional[dict[str, str]] = None,
+        agent_name: str = "",
+        local_directory: str = "./data/audio/incoming",
+    ) -> list[dict]:
+        """
+        Google Drive에서 새 파일을 동기화하고 처리.
+
+        Args:
+            db: 데이터베이스 세션
+            phone_number_map: 파일명 → 전화번호 매핑
+            agent_name: 상담원 이름
+            local_directory: 로컬 저장 디렉토리
+
+        Returns:
+            처리 결과 목록
+        """
+        if not self.sync_service:
+            logger.error("클라우드 동기화가 활성화되지 않았습니다")
+            return []
+
+        downloaded = self.sync_service.sync_from_drive(local_directory)
+        if not downloaded:
+            logger.info("새로 다운로드된 파일 없음")
+            return []
+
+        logger.info(f"Google Drive에서 {len(downloaded)}개 파일 다운로드")
+
+        results = []
+        for file_path in downloaded:
+            filename = Path(file_path).stem
+            phone = (phone_number_map or {}).get(filename, "000-0000-0000")
+            try:
+                result = self.process_file_path(
+                    db=db,
+                    file_path=file_path,
+                    phone_number=phone,
+                    agent_name=agent_name,
+                )
+                results.append({"file": Path(file_path).name, "success": True, **result})
+                logger.info("처리 완료: %s", file_path)
+            except Exception as e:
+                logger.error("처리 실패: %s - %s", file_path, e)
+                results.append({"file": Path(file_path).name, "success": False, "error": str(e)})
+
+        return results
+
+    def get_records_from_sheets(self) -> list[dict]:
+        """Google Sheets에서 모든 분석 기록 조회."""
+        if not self.sync_service:
+            return []
+        return self.sync_service.get_all_records_from_sheets()
+
+    def get_customer_history(self, phone_number: str) -> list[dict]:
+        """Firebase에서 고객 상담 이력 조회."""
+        if not self.sync_service:
+            return []
+        return self.sync_service.get_customer_history_from_firebase(phone_number)

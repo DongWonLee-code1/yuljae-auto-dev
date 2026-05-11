@@ -191,4 +191,65 @@ def create_app() -> FastAPI:
     def health_check():
         return {"status": "ok", "service": settings.company_name}
 
+    # ── 클라우드 연동 ─────────────────────────────────────────────
+
+    @app.post("/cloud/sync-drive", tags=["클라우드 연동"])
+    def sync_from_google_drive(
+        agent_name: str = "",
+        db: Session = Depends(_get_db_session),
+    ):
+        """
+        Google Drive에서 새 음성 파일을 가져와 분석합니다.
+
+        환경변수 설정 필요:
+        - GOOGLE_APPLICATION_CREDENTIALS: Google 서비스 계정 JSON 경로
+        - GOOGLE_DRIVE_FOLDER_ID: 음성 파일이 저장된 Drive 폴더 ID
+        """
+        results = pipeline.sync_and_process_from_drive(
+            db=db,
+            agent_name=agent_name,
+        )
+        return {
+            "message": f"{len(results)}개 파일 처리 완료",
+            "results": results,
+        }
+
+    @app.get("/cloud/sheets-records", tags=["클라우드 연동"])
+    def get_sheets_records():
+        """
+        Google Sheets에 저장된 모든 분석 기록을 조회합니다.
+
+        환경변수 설정 필요:
+        - GOOGLE_APPLICATION_CREDENTIALS
+        - GOOGLE_SHEETS_ID: Google Sheets 문서 ID
+        """
+        records = pipeline.get_records_from_sheets()
+        return {
+            "total": len(records),
+            "records": records,
+        }
+
+    @app.get("/cloud/customer-history/{phone_number}", tags=["클라우드 연동"])
+    def get_firebase_customer_history(phone_number: str):
+        """
+        Firebase에서 고객의 상담 이력을 조회합니다.
+
+        환경변수 설정 필요:
+        - FIREBASE_CREDENTIALS: Firebase 서비스 계정 JSON 경로
+        """
+        history = pipeline.get_customer_history(phone_number)
+        return {
+            "phone_number": phone_number,
+            "total_consultations": len(history),
+            "history": history,
+        }
+
+    @app.post("/cloud/setup-sheets", tags=["클라우드 연동"])
+    def setup_google_sheets():
+        """Google Sheets 초기 설정 (헤더 및 포맷 생성)."""
+        if not pipeline.sync_service:
+            raise HTTPException(503, "클라우드 동기화가 활성화되지 않았습니다")
+        pipeline.sync_service.setup_sheets()
+        return {"message": "Google Sheets 초기 설정 완료"}
+
     return app
