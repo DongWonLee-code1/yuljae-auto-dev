@@ -40,6 +40,13 @@ def get_db() -> Generator[Session, None, None]:
 
 
 class Database:
+    # ── Session Helper ────────────────────────────────────────
+    @staticmethod
+    def get_session() -> Session:
+        """새 DB 세션 반환. 사용 후 close() 필요."""
+        init_db()
+        return SessionLocal()
+
     # ── Customer ──────────────────────────────────────────────
     @staticmethod
     def get_or_create_customer(db: Session, phone_number: str) -> Customer:
@@ -133,6 +140,10 @@ class Database:
         db.flush()
         return transcript
 
+    @staticmethod
+    def get_transcript(db: Session, transcript_id: int) -> Optional[Transcript]:
+        return db.query(Transcript).filter(Transcript.id == transcript_id).first()
+
     # ── TriggerWordAnalysis ───────────────────────────────────
     @staticmethod
     def save_trigger_analysis(
@@ -192,6 +203,10 @@ class Database:
         db.add(insight)
         db.flush()
         return insight
+
+    @staticmethod
+    def get_insight_by_transcript(db: Session, transcript_id: int) -> Optional[InsightRecord]:
+        return db.query(InsightRecord).filter(InsightRecord.transcript_id == transcript_id).first()
 
     # ── FollowUp ──────────────────────────────────────────────
     @staticmethod

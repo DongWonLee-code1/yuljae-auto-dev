@@ -5,8 +5,8 @@
 ## 시스템 아키텍처
 
 ```
-통화 녹음 업로드
-       │
+통화 녹음 업로드 ◀──── Slack 채널 파일 업로드
+       │                (자동 감지)
        ▼
 ┌─────────────────┐
 │  STT 변환       │  OpenAI Whisper API (한국어 최적화)
@@ -119,6 +119,123 @@ python run.py analyze recording.mp3 010-1234-5678 --agent-name 홍길동
 python run.py batch ./recordings/ --agent-name 홍길동
 ```
 
+**Slack 봇 실행**
+```bash
+python slack_bot.py
+```
+
+## Slack App 설정 가이드
+
+Slack 채널에 오디오 파일이 업로드되면 자동으로 분석하는 봇을 설정하는 방법입니다.
+
+### 1. Slack App 생성
+
+1. [Slack API](https://api.slack.com/apps) 페이지에서 **Create New App** 클릭
+2. **From scratch** 선택
+3. App Name: `율재 분석봇` (또는 원하는 이름)
+4. Workspace 선택 후 **Create App**
+
+### 2. Socket Mode 활성화
+
+Socket Mode를 사용하면 공개 URL 없이도 이벤트를 수신할 수 있습니다.
+
+1. 좌측 메뉴에서 **Socket Mode** 클릭
+2. **Enable Socket Mode** 토글 ON
+3. App-Level Token 생성:
+   - Token Name: `socket-mode-token`
+   - Scope: `connections:write` 추가
+   - **Generate** 클릭
+4. 생성된 `xapp-...` 토큰을 `.env` 파일의 `SLACK_APP_TOKEN`에 저장
+
+### 3. OAuth & Permissions 설정
+
+1. 좌측 메뉴에서 **OAuth & Permissions** 클릭
+2. **Bot Token Scopes**에 다음 권한 추가:
+
+| Scope | 설명 |
+|-------|------|
+| `channels:history` | 공개 채널 메시지 읽기 |
+| `channels:read` | 공개 채널 목록 조회 |
+| `chat:write` | 메시지 전송 |
+| `files:read` | 파일 정보 읽기 (다운로드용) |
+| `files:write` | 파일 업로드 (CSV 결과 첨부용) |
+| `groups:history` | 비공개 채널 메시지 읽기 (선택) |
+| `groups:read` | 비공개 채널 목록 조회 (선택) |
+
+3. 페이지 상단 **Install to Workspace** 클릭
+4. 권한 허용 후 생성된 `xoxb-...` 토큰을 `.env` 파일의 `SLACK_BOT_TOKEN`에 저장
+
+### 4. Event Subscriptions 설정
+
+1. 좌측 메뉴에서 **Event Subscriptions** 클릭
+2. **Enable Events** 토글 ON
+3. **Subscribe to bot events**에 다음 이벤트 추가:
+
+| Event | 설명 |
+|-------|------|
+| `file_shared` | 파일 업로드 감지 (핵심 이벤트) |
+| `message.channels` | 공개 채널 메시지 (선택) |
+| `message.groups` | 비공개 채널 메시지 (선택) |
+
+4. **Save Changes** 클릭
+
+### 5. Signing Secret 확인
+
+1. 좌측 메뉴에서 **Basic Information** 클릭
+2. **App Credentials** 섹션에서 **Signing Secret** 복사
+3. `.env` 파일의 `SLACK_SIGNING_SECRET`에 저장
+
+### 6. 봇을 채널에 추가
+
+1. Slack 워크스페이스에서 분석할 채널 열기
+2. 채널 이름 클릭 → **통합** 탭
+3. **앱 추가** 클릭 → 생성한 앱 추가
+
+### 7. 환경 변수 최종 확인
+
+```env
+# .env 파일
+SLACK_BOT_TOKEN=xoxb-your-bot-user-oauth-token
+SLACK_APP_TOKEN=xapp-your-app-level-token
+SLACK_SIGNING_SECRET=your-signing-secret
+```
+
+### 8. 봇 실행 및 테스트
+
+```bash
+# 봇 실행
+python slack_bot.py
+
+# 출력 예시:
+# 2024-01-15 10:30:00 [INFO] slack_bot: Slack 봇 시작 (Socket Mode)
+# 2024-01-15 10:30:00 [INFO] slack_bot: 지원 오디오 형식: .m4a, .mp3, .wav, ...
+```
+
+테스트:
+1. 봇이 추가된 채널에 `.m4a` 또는 `.mp3` 파일 업로드
+2. 봇이 자동으로 "분석을 시작합니다..." 메시지 전송
+3. 1-2분 후 분석 결과가 스레드에 포맷팅된 메시지 + CSV 파일로 전송됨
+
+### 작동 흐름
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Slack 채널                                                      │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  👤 사용자: [consultation_20240115.m4a 업로드]            │    │
+│  │                                                          │    │
+│  │  └─ 🤖 봇: 🎙️ 분석을 시작합니다...                        │    │
+│  │                                                          │    │
+│  │  └─ 🤖 봇: 📊 통화 분석 완료                              │    │
+│  │           📝 요약: 서초동 20억대 매물 관심 고객...         │    │
+│  │           🔥 기회 점수: 85/100                            │    │
+│  │           ...                                             │    │
+│  │                                                          │    │
+│  │  └─ 🤖 봇: [분석결과_consultation_20240115_42.csv 첨부]   │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ### 테스트
 ```bash
 pytest tests/ -v
@@ -144,6 +261,7 @@ pytest tests/ -v
 ```
 yuljae-auto-dev/
 ├── run.py                    # CLI 진입점
+├── slack_bot.py              # Slack 자동화 봇 (Socket Mode)
 ├── config.py                 # 환경 설정
 ├── requirements.txt
 ├── transcription/
@@ -171,6 +289,7 @@ yuljae-auto-dev/
 |------|------|
 | STT | OpenAI Whisper API |
 | AI 분석 | Anthropic Claude Opus 4.7 (Prompt Caching) |
+| Slack 연동 | slack-bolt (Socket Mode) |
 | 웹 API | FastAPI + Uvicorn |
 | 데이터베이스 | SQLite + SQLAlchemy 2.0 |
 | 대시보드 | Streamlit + Plotly |

@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
 
+    # Slack 설정 (Socket Mode)
+    slack_bot_token: str = ""      # xoxb-로 시작하는 Bot User OAuth Token
+    slack_app_token: str = ""      # xapp-로 시작하는 App-Level Token (Socket Mode용)
+    slack_signing_secret: str = "" # Slack App Signing Secret
+
     database_url: str = "sqlite:///./yuljae_data.db"
 
     api_host: str = "0.0.0.0"
