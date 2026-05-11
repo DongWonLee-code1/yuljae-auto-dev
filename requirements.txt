@@ -1,0 +1,21 @@
+# 부동산 상담 통화 녹음 전사 및 분석 시스템 의존성
+# Real Estate Consultation Call Transcription & Analysis System Dependencies
+
+# Core - AssemblyAI SDK (STT + Speaker Diarization)
+assemblyai>=0.33.0
+
+# Analysis - Anthropic Claude API
+anthropic>=0.39.0
+
+# Data validation
+pydantic>=2.0
+pydantic-settings>=2.0
+
+# Environment configuration
+python-dotenv>=1.0
+
+# Google Drive & Sheets API
+google-api-python-client>=2.100.0
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
